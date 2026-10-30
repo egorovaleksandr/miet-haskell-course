@@ -15,13 +15,25 @@ newtype Point = Point [Double] deriving (Eq, Show, Read)
 distance :: Point -> Point -> Double
 distance (Point xs) (Point ys)
   | length xs /= length ys = error "Разная размерность"
-  | otherwise = sqrt (sum (zipWith (\a b -> (a - b) ** 2) xs ys))
+  | otherwise = sqrt (sumSquares (zip xs ys))
+  where
+    sumSquares :: [(Double, Double)] -> Double
+    sumSquares [] = 0
+    sumSquares ((a, b) : rest) = (a - b) ** 2 + sumSquares rest
+
+findRec :: (a -> Bool) -> [a] -> Maybe a
+findRec _ [] = Nothing
+findRec f (x:xs)
+  | f x = Just x
+  | otherwise = findRec f xs
+
+findStd :: (a -> Bool) -> [a] -> Maybe a
+findStd f xs = case filter f xs of
+  (x:_) -> Just x
+  []    -> Nothing
 
 find :: (a -> Bool) -> [a] -> Maybe a
-find _ [] = Nothing
-find f (x:xs)
-  | f x = Just x
-  | otherwise = find f xs
+find = findRec
 
 findLast :: (a -> Bool) -> [a] -> Maybe a
 findLast f xs = foldl (\acc x -> if f x then Just x else acc) Nothing xs

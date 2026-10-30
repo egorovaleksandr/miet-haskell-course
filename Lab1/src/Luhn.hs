@@ -1,7 +1,9 @@
 module Luhn where
 
 isLuhnValid :: Integer -> Bool
-isLuhnValid n = luhnSum (reverse (toDigits n)) `mod` 10 == 0
+isLuhnValid n 
+  | n < 0 = False
+  | otherwise = luhnSum (reverse (toDigits n)) `mod` 10 == 0
   where
     toDigits :: Integer -> [Integer]
     toDigits 0 = [0]
