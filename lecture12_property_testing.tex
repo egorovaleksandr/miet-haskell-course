@@ -1,6 +1,11 @@
 \documentclass[11pt]{beamer}
 \input{lecture_preamble.tex}
 
+% Символы рамки в отчёте Hedgehog.
+\DeclareUnicodeCharacter{2503}{\makebox[.6em]{\rule[-.2ex]{.6pt}{1.7ex}}}
+\DeclareUnicodeCharacter{2502}{\makebox[.6em]{\rule[-.2ex]{.3pt}{1.7ex}}}
+\DeclareUnicodeCharacter{2501}{\rule[.5ex]{.6em}{.6pt}}
+
 \title{Лекция 12: тестирование свойств}
 
 \begin{document}
@@ -20,7 +25,7 @@
             \item Тесты легко понять.
             \item Можно сделать даже без помощи библиотек.
             \item Но при этом библиотеки для написания таких тестов есть практически для всех языков.
-            \item Для чистых функций (в Haskell почти для всех!) кроме аргументов и результата функции проверять и нечего.
+            \item Чистую функцию удобно тестировать: результат зависит только от аргументов.
           \end{itemize}
           \pause
     \item TDD (Test Driven Development) \pause "--- сначала тесты, потом реализация.
@@ -37,7 +42,7 @@
           Разве что если функция на \haskinline|Bool|...
           \pause
     \item Нужно искать пограничные случаи (т.е. те, в которых ошибка более вероятна) самому. \\
-          Хотя есть часто встречающиеся: \pause \haskinline|0|, пустой список, \haskinline|INT_MIN|...
+          Хотя есть часто встречающиеся: \pause \haskinline|0|, пустой список, \haskinline|(minBound :: Int)|...
           \pause
     \item Для каких-то аргументов мы можем не знать правильного результата (и не иметь независимого от тестируемой функции способа его найти).
           \pause
@@ -48,56 +53,127 @@
 \begin{frame}[fragile]
   \frametitle{Свойства вместо примеров}
   \begin{itemize}
-    \item Тестирование свойств (property testing или property-based testing) позволяет избежать этих проблем (и создать новые, как обычно).
+    \item Тестирование свойств (property-based testing) помогает находить ошибки на множестве автоматически сгенерированных примеров.
     \item Основная идея: вместо результата на конкретных аргументах мы описываем свойства, которые должны выполняться \emph{для всех аргументов} подходящего типа. \pause Или не совсем для всех, но об этом потом.
           \pause
     \item Эти свойства проверяем на случайных аргументах (скажем, 100 за раз по умолчанию).
-          \pause
-    \item В процессе разработки тесты запускаются далеко не один раз, так что каждое свойство будет проверено в сотнях или тысячах случаев.
   \end{itemize}
 \end{frame}
 
-% TODO: 1. Перейти на Hedgehog; 
-% TODO: 2. Добавить примеры неверных свойств без исключений!
+\begin{frame}[fragile]
+  \frametitle{Что означает успешная проверка?}
+  \begin{itemize}
+    \item В процессе разработки тесты запускаются далеко не один раз, так что каждое свойство будет проверено в сотнях или тысячах случаев.
+          \pause
+    \item Успешная проверка не доказывает свойство: результат зависит от выбора генераторов и числа тестов.
+          \pause
+    \item Важные пограничные случаи всё равно нужно учитывать при построении генераторов.
+  \end{itemize}
+\end{frame}
 
 \begin{frame}[fragile]
   \frametitle{Простейший пример}
   \begin{itemize}
-    \item Для Haskell две основных библиотеки: \href{http://hackage.haskell.org/package/QuickCheck}{QuickCheck} и \href{https://github.com/hedgehogqa/haskell-hedgehog/}{Hedgehog} (есть ещё более новая \hackage{falsify}). Мы используем первую для простоты кода.
-          \begin{haskell}
-            ghci> import Test.QuickCheck
-            ghci> quickCheck (\x -> (x :: Integer) * x >= 0)
-          \end{haskell}
+    \item Будем использовать библиотеку \hackage{hedgehog}:
+          \begin{haskellsmall}
+            import Hedgehog
+            import qualified Hedgehog.Gen as Gen
+            import qualified Hedgehog.Range as Range
+
+            prop_square :: Property
+            prop_square = property $ do
+              (x :: Integer) <- forAll $ Gen.integral $
+                Range.linearFrom 0 (-10^100) (10^100)
+              assert (x * x >= 0)
+
+            ghci> check prop_square
+          \end{haskellsmall}
           \begin{ghci}
-            +++ OK, passed 100 tests.
+            True
           \end{ghci}
-    \item Проверили, что квадраты \haskinline|Integer| неотрицательны.
+    \item Квадраты оказались неотрицательны для 100 случайных значений в данном диапазоне.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Диапазоны значений}
+  \begin{itemize}
+    \item \href{https://hackage.haskell.org/package/hedgehog/docs/Hedgehog-Range.html}{\haskinline|Hedgehog.Range|} задаёт границы значений и цель уменьшения.
+    \item \haskinline|Range.linear 0 100|: границы растут от \haskinline|(0, 0)| до \haskinline|(0, 100)| вместе с размером примера (от 0 до 99).
+    \item \haskinline|Range.constant 0 100|: границы всегда \haskinline|(0, 100)|, независимо от размера.
+    \item \haskinline|Range.linearFrom 0 (-100) 100|: границы расширяются от нуля в обе стороны.
+    \item \haskinline|Range.constantBounded|: весь диапазон ограниченного типа, например \haskinline|Int|.
+    \item Во всех этих примерах цель уменьшения "--- ноль.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{А если использовать Int?}
+  \begin{itemize}
+    \item Верно ли то же свойство для \haskinline|Int|?
+          \begin{haskellsmall}
+            prop_squareInt :: Property
+            prop_squareInt = property $ do
+              x <- forAll $ Gen.int Range.constantBounded
+              diff (x * x) (>=) 0
+            ghci> check prop_squareInt
+          \end{haskellsmall}
+          \pause
+          {\footnotesize Фрагмент отчёта (64-битный \haskinline|Int|):}
+          \begin{ghcismall}
+                after 2 tests and 27 shrinks.
+            6 ┃   x <- forAll $ Gen.int Range.constantBounded
+              ┃   │ 3013262616387239886
+            7 ┃   diff (x * x) (>=) 0
+              ┃   ^^^^^^^^^^^^^^^^^^^
+              ┃   │ ━━━ Failed (- lhs) (+ rhs) ━━━
+              ┃   │ - -7464790805971924540
+              ┃   │ + 0
+            False
+          \end{ghcismall}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Переполнение и минимизация}
+  \begin{itemize}
+    \item \href{https://hackage.haskell.org/package/hedgehog/docs/Hedgehog.html#v:diff}{\haskinline|diff a rel b|} проверяет \haskinline|rel a b|. При ошибке показывает оба значения: \haskinline|-| обозначает левое, \haskinline|+| "--- правое.
+    \item Контрпример уменьшен, но не до минимума. Для 64-битного \haskinline|Int| есть, например:
+          \begin{haskellsmall}
+            ghci> let x = 3037000500 :: Int
+            ghci> x * x
+          \end{haskellsmall}
+          \pause
+          \begin{ghcismall}
+            -9223372036709301616
+          \end{ghcismall}
+    \item Из-за переполнения свойство \haskinline|x * x >= 0| может менять истинность при уменьшении \haskinline|x|. Shrinking не гарантирует самого маленького контрпримера.
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
   \frametitle{Ещё один пример}
   \begin{itemize}
-    \item Верно ли, что первый элемент списка всегда равен последнему элементу развёрнутого?
+    \item Первый элемент списка равен последнему в развёрнутом списке?
           \begin{haskellsmall}
-            ghci> quickCheck (\xs -> head xs === last (reverse xs))
-          \end{haskellsmall}
-          \pause
-          \begin{ghcitiny}
-            *** Failed! Exception: 'Prelude.head: empty list' (after 1 test):
-            []
-          \end{ghcitiny}
-          (с GHC 9.8 уже само использование \haskinline|head| даёт предупреждение \ghcinline|x-partial|)
-    \item Как исправить? \pause Нужно добавить условие, что список непустой:
-          \begin{haskellsmall}
-            ghci> quickCheck (\xs -> not (null xs) ==>
-                    head xs === last (reverse xs))
+            prop_head :: Property
+            prop_head = property $ do
+              xs <- forAll $ Gen.list (Range.linear 0 100) $
+                Gen.int (Range.linearFrom 0 (-100) 100)
+              head xs === last (reverse xs)
+            ghci> check prop_head
           \end{haskellsmall}
           \pause
           \begin{ghcismall}
-            +++ OK, passed 100 tests.
+            Prelude.head: empty list
+            False
           \end{ghcismall}
-
+          {\footnotesize Вывод сокращён; \haskinline|head| даёт предупреждение \ghcinline|x-partial|.}
+    \item Как исправить? \pause Отбросим пустые списки перед вызовом \haskinline|head|:
+          \begin{haskellsmall}
+            if null xs then discard else success
+          \end{haskellsmall}
+          Или генерировать непустые списки: \haskinline|Range.linear 1 100|.
   \end{itemize}
 \end{frame}
 
@@ -105,12 +181,18 @@
   \frametitle{Основные типы и функции}
   \begin{itemize}
     \item \haskinline|Gen a|: генератор случайных значений типа \haskinline|a|.
-    \item \haskinline|forAll :: (Show a, Testable prop) => Gen a -> (a -> prop) -> Property|: создаёт свойство с использованием заданного генератора.
-    \item \haskinline|class Arbitrary a where arbitrary :: Gen a|: типы, у которых есть \enquote{стандартный генератор}.
-    \item[]
-    \item \haskinline|class Testable a|: типы, которые можно протестировать (например \haskinline|Bool| и \haskinline|Property|).
-    \item Функции \haskinline|a -> prop|, где \haskinline|Arbitrary a|, \haskinline|Show a|, \haskinline|Testable prop| "--- тоже \haskinline|Testable|.
-    \item \haskinline|quickCheck, verboseCheck :: Testable prop => prop -> IO ()|: проверяет свойство и выводит результат.
+    \item \haskinline|Property|: свойство, которое можно проверить.
+    \item Тело свойства "--- в монаде \haskinline|PropertyT IO| (типы упрощены):
+          \begin{haskellsmall}
+            property :: PropertyT IO () -> Property
+            forAll :: Show a => Gen a -> PropertyT IO a
+            assert :: Bool -> PropertyT IO ()
+            (===) :: (Eq a, Show a) =>
+                     a -> a -> PropertyT IO ()
+            check :: Property -> IO Bool
+          \end{haskellsmall}
+    \item \haskinline|forAll| генерирует аргумент; \haskinline|assert| проверяет условие; \haskinline|===| сравнивает значения.
+    \item \haskinline|discard| пропускает пример. Слишком много пропусков "--- проблема с генератором.
   \end{itemize}
 \end{frame}
 
@@ -119,8 +201,8 @@
   \begin{itemize}
     \item Примеры базовых генераторов:
           \begin{haskell}
-            choose :: Random a => (a, a) -> Gen a
-            elements :: [a] -> Gen a
+            Gen.int :: Range Int -> Gen Int
+            Gen.element :: [a] -> Gen a
           \end{haskell}
     \item Из простых генераторов можно строить более сложные, пользуясь тем, что \haskinline|Gen| "--- монада. Например:
           \begin{haskell}
@@ -128,7 +210,7 @@
             genPair ga gb =!\pause! liftA2 (,) ga gb
 
             genMaybe :: Gen a -> Gen (Maybe a)
-            genMaybe ga = do is_just <- arbitrary @Bool
+            genMaybe ga = do is_just <- Gen.bool
                             if is_just 
                               then!\pause! fmap Just ga
                               else!\pause! pure Nothing
@@ -137,27 +219,69 @@
 \end{frame}
 
 \begin{frame}[fragile]
+  \frametitle{Композиция и уменьшение}
+  \begin{itemize}
+    \item Вариант через \haskinline|do| генерирует пары так же:
+          \begin{haskellsmall}
+            genPairM :: Gen a -> Gen b -> Gen (a, b)
+            genPairM ga gb = do
+              x <- ga
+              y <- gb
+              pure (x, y)
+          \end{haskellsmall}
+          \pause
+    \item Начав уменьшать \haskinline|y| в контрпримере, Hedgehog уже не возвращается к \haskinline|x|. С \haskinline|liftA2| можно чередовать уменьшение компонент.
+    \item То же ограничение "--- у нескольких \haskinline|forAll| в \haskinline|do|.
+    \item В \hackage{falsify} этого ограничения нет: он уменьшает внутренние случайные решения.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Распределение тестовых примеров}
+  \begin{itemize}
+    \item \href{https://hackage.haskell.org/package/hedgehog/docs/Hedgehog.html#v:classify}{\haskinline|classify|} показывает доли случаев, а \href{https://hackage.haskell.org/package/hedgehog/docs/Hedgehog.html#v:cover}{\haskinline|cover|} требует минимальную долю:
+          \begin{haskellsmall*}{texcomments=false}
+            {-# LANGUAGE OverloadedStrings #-}
+            prop_reverseCoverage :: Property
+            prop_reverseCoverage = property $ do
+              xs <- forAll $ Gen.list
+                (Range.constant 0 10) Gen.bool
+              classify "empty" (null xs)
+              cover 30 "length >= 3" (length xs >= 3)
+              reverse (reverse xs) === xs
+            ghci> check prop_reverseCoverage
+          \end{haskellsmall*}
+          \pause
+          {\footnotesize Фрагмент сводки одного запуска (без диаграмм):}
+          \begin{ghcismall}
+            empty        5%
+            length >= 3 82%
+          \end{ghcismall}
+    \item С \haskinline|pure []| свойство верно, но проверка покрытия провалится.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
   \frametitle{Генераторы значений}
   \begin{itemize}
-    \item С рекурсивными типами несколько сложнее. Можно попробовать привести пример
+    \item Для рекурсивных типов наивный генератор:
           \begin{haskelltiny}
+            import Control.Applicative (liftA3)
             data Tree a = Empty | Node a (Tree a) (Tree a)
+              deriving (Eq, Show)
 
             treeOf :: Gen a -> Gen (Tree a)
-            treeOf g = oneof [pure Empty, 
-                              liftA3 Node g (treeOf g) (treeOf g)]
+            treeOf g = Gen.choice [pure Empty,
+                         liftA3 Node g (treeOf g) (treeOf g)]
           \end{haskelltiny}
           но это определение плохое: оно даёт очень маленькие деревья (почему?).
     \item Правильнее:
           \begin{haskelltiny}
-            treeOf g = do n <- getSize
-                          if n == 0
-                            then pure Empty
-                            else do
-                              k <- choose (0,n)
-                              liftA3 Node g (resize k $ treeOf g)
-                                            (resize (n-k) $ treeOf g)
+            treeOf g = Gen.recursive Gen.choice
+              [pure Empty]
+              [liftA3 Node g (treeOf g) (treeOf g)]
           \end{haskelltiny}
+          \haskinline|Gen.recursive| уменьшает размер при рекурсии и исключает её при малом размере.
   \end{itemize}
 \end{frame}
 
@@ -168,22 +292,19 @@
     \item Это ветвящийся процесс (Гальтона-Ватсона) со средним числом потомков $2 \cdot 1/2 = 1$ "--- \emph{критический} случай.
           \pause
     \item Дерево конечно с вероятностью 1, но его \emph{ожидаемый} размер бесконечен: почти всегда оно крошечное, а изредка генерация не завершается за разумное время.
-    \item Отсюда и параметр размера в QuickCheck (\haskinline|getSize|, \haskinline|resize|, \haskinline|sized|): размер должен убывать при рекурсии.
+    \item Отсюда и параметр размера в Hedgehog (\haskinline|Gen.sized|, \haskinline|Gen.resize|): размер должен убывать при рекурсии. \haskinline|Gen.recursive| делает это за нас.
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
   \frametitle{Минимизация контрпримеров}
   \begin{itemize}
-    \item Найденный сначала контрпример обычно будет довольно большим (хотя начинается генерация с примеров малого размера).
-    \item Поэтому библиотека старается найти и выдать пользователю более простые значения аргументов, дающие ту же ошибку.
-    \item В случае QuickCheck за это уменьшение отвечает функция \haskinline|shrink :: a -> [a]| в классе \haskinline|Arbitrary|.
-    \item В Hedgehog, это уменьшение задаётся как часть \haskinline|Hedgehog.Gen|, что имеет преимущества:
-          \begin{itemize}
-            \item Если что-то сгенерировали, точно можно уменьшить.
-            \item При уменьшении сохраняются инварианты.
-            \item Подробнее: \href{https://hypothesis.works/articles/integrated-shrinking/}{Integrated vs type based shrinking}.
-          \end{itemize}
+    \item Первый найденный контрпример может быть большим.
+    \item Библиотека ищет более простые аргументы, дающие ту же ошибку.
+    \item В Hedgehog уменьшение (shrinking) встроено в генератор: отдельная функция обычно не нужна.
+    \item Например, генератор непустых списков уменьшает контрпример, сохраняя непустоту.
+    \item Это не гарантирует минимального контрпримера: качество уменьшения зависит от того, как построен генератор.
+    \item Подробнее: \href{https://hypothesis.works/articles/integrated-shrinking/}{Integrated vs type based shrinking}.
   \end{itemize}
 \end{frame}
 
@@ -191,35 +312,31 @@
   \frametitle{Воспроизводимость}
   \begin{itemize}
     \item Если мы нашли контрпример (например, с десятого запуска) и изменили реализацию, нужно проверить, что этот случай исправился.
-    \item В QuickCheck для этого просто запускаем то же свойство с напечатанными аргументами. Можно также добавить обычный тест с ними.
+    \item Для этого можно добавить обычный тест с напечатанными аргументами.
     \item Конечно, это удобно делать только тогда, когда минимизация более-менее удалась.
     \item Кроме того, для некоторых типов результат \haskinline|show x| недостаточен для точного воспроизведения \haskinline|x| (придумаете пример?)
-    \item Поэтому в Hedgehog кроме аргументов выдаётся параметр для перезапуска генератора.
+    \item В Hedgehog печатается команда с \href{https://hackage.haskell.org/package/hedgehog/docs/Hedgehog.html#v:recheckAt}{\haskinline|recheckAt|} для воспроизведения по seed и пути уменьшения.
+          Перед её запуском в GHCi:
+          \begin{haskellsmall}
+            ghci> :set -XOverloadedStrings
+          \end{haskellsmall}
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
-  \frametitle{Реализация Arbitrary для своих типов}
+  \frametitle{Дополнительные уменьшения для своих типов}
   \begin{itemize}
-    \item Для пар (компоненты уменьшаются по очереди; вариант \haskinline![(x', y') | x' <- shrink x, y' <- shrink y]! плох: если \haskinline|x| не уменьшается, не уменьшится и пара):
-          \begin{haskelltiny}
-            instance (Arbitrary a, Arbitrary b) =>
-                     Arbitrary (a, b) where
-              arbitrary = genPair arbitrary arbitrary
-              shrink (x, y) = [(x', y) | x' <- shrink x] ++
-                              [(x, y') | y' <- shrink y]
-          \end{haskelltiny}
-    \item Для деревьев:
-          \begin{haskelltiny}
-            instance Arbitrary a => Arbitrary (Tree a) where
-              arbitrary = treeOf arbitrary
-              shrink Empty = []
-              shrink (Node x l r) =
-                [Empty, l, r] ++
-                [Node x' l r | x' <- shrink x] ++
-                [Node x l' r | l' <- shrink l] ++
-                [Node x l r' | r' <- shrink r]
-          \end{haskelltiny}
+    \item В \haskinline|genPair ga gb| уменьшение обеих компонент уже задано генераторами \haskinline|ga| и \haskinline|gb|.
+    \item Можно добавить свои варианты уменьшения с помощью \haskinline|Gen.shrink|:
+          \begin{haskellsmall}
+            shrinkTree :: Tree a -> [Tree a]
+            shrinkTree Empty = []
+            shrinkTree (Node _ l r) = [Empty, l, r]
+
+            genTree :: Gen a -> Gen (Tree a)
+            genTree g = Gen.shrink shrinkTree (treeOf g)
+          \end{haskellsmall}
+    \item Дополнительно пробуем пустое дерево или поддерево.
   \end{itemize}
 \end{frame}
 
@@ -228,55 +345,320 @@
   \begin{itemize}
     \item Самое тривиальное свойство "--- функция даёт результат, а не выкидывает исключение.
     \item Сверка с другой реализацией той же функции.
-    \item При наличии также обратной функции: \haskinline|encode (decode x) == x|.
     \item Алгебраические свойства: идемпотентность, коммутативность, ассоциативность и так далее.
     \item Законы классов типов.
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
+  \frametitle{Свойства сериализации и разбора}
+  \begin{itemize}
+    \item Для некоторого типа значений \haskinline|Value|:
+          \begin{itemize}
+            \item Предположим типы:
+                  \begin{haskellsmall}
+                    encode :: Value -> String
+                    decode :: String -> Either String Value
+                  \end{haskellsmall}
+            \item Из значения в представление и обратно:
+                  \begin{haskellsmall}
+                    decode (encode x) === Right x
+                  \end{haskellsmall}
+                  Проверяем, что кодирование сохраняет значение.
+                  \pause
+            \item Из представления в значение и обратно:
+                  \begin{haskellsmall}
+                    fmap encode (decode s) === Right s
+                  \end{haskellsmall}
+                  Требует корректной канонической записи: в той форме, которую выдаёт \haskinline|encode|.
+
+                  Повторное кодирование может нормализовать запись: например, разбор \haskinline|"01"| даёт число \haskinline|1|, а его запись "--- \haskinline|"1"|.
+          \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
   \frametitle{Генераторы функций}
   \begin{itemize}
-    \item Для тестирования функций высшего порядка нужно уметь генерировать их аргументы, то есть случайные функции. Для этого в QuickCheck есть \href{http://hackage.haskell.org/package/QuickCheck-2.13.1/docs/Test-QuickCheck.html#g:14}{тип \haskinline|Fun| и класс \haskinline|Function|}. \haskinline|Fun a b| представляет функцию \haskinline|a -> b| как набор пар аргумент-значение и значение по умолчанию (например \haskinline|{"elephant"->1, "monkey"->1, _->0}|). Экземпляр \haskinline|Function a| нужен для генерации \haskinline|Fun a b|.
+    \item Для тестирования функций высшего порядка нужны случайные функции.
+    \item Для Hedgehog это предоставляет пакет \hackage{hedgehog-fn}, модуль \href{https://hackage.haskell.org/package/hedgehog-fn/docs/Hedgehog-Function.html}{\haskinline|Hedgehog.Function|}:
+          \begin{haskellsmall}
+            import Hedgehog.Function
+              (Arg, Vary, Fn, fn, apply)
+
+            fn :: (Arg a, Vary a) => Gen b -> Gen (Fn a b)
+            apply :: Fn a b -> a -> b
+          \end{haskellsmall}
+    \item \haskinline|Fn a b| представляет функцию \haskinline|a -> b| в виде, который можно показать и уменьшить.
+    \item Экземпляры \haskinline|Arg a| и \haskinline|Vary a| нужны для генерации функций с аргументами типа \haskinline|a|; для стандартных типов они уже есть.
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
   \frametitle{Свойства функций}
   \begin{itemize}
-    \item Как пример использования, покажем, что функции \haskinline|Int -> String| "--- чистые, то есть дают одинаковый результат при повторном вызове:
-          \begin{haskell}
-            prop :: Fun Int String -> Int -> Bool
-            prop (Fn f) x = f x == f x
-            ghci> quickCheck prop
-          \end{haskell}
-          \begin{ghci}
-            +++ OK, passed 100 tests.
-          \end{ghci}
+    \item Проверим ассоциативность композиции для функций \haskinline|Int -> Int|:
+          \begin{haskellsmall}
+            prop_compose :: Property
+            prop_compose = property $ do
+              let gi = Gen.int (Range.linearFrom 0 (-100) 100)
+              (fg, fh, fk, x) <- forAll $
+                (,,,) <$> fn gi <*> fn gi <*> fn gi <*> gi
+              let (g, h, k) = (apply fg, apply fh, apply fk)
+              ((g . h) . k) x === (g . (h . k)) x
+            ghci> check prop_compose
+          \end{haskellsmall}
+          \pause
+          \begin{ghcismall}
+            True
+          \end{ghcismall}
+    \item У функций нет \haskinline|Eq|: сравниваем результаты на аргументе \haskinline|x|. Функция \haskinline|apply| извлекает обычную функцию из \haskinline|Fn|.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Закон класса как свойство}
+  \begin{itemize}
+    \item Например, проверим ассоциативность операции \haskinline|<>|:
+          \begin{haskellsmall}
+            prop_associative :: (Eq a, Show a, Semigroup a)
+                             => Gen a -> Property
+            prop_associative genA = property $ do
+              (x, y, z) <- forAll $
+                (,,) <$> genA <*> genA <*> genA
+              (x <> y) <> z === x <> (y <> z)
+          \end{haskellsmall}
+    \item Генератор определяет, какой экземпляр класса проверяем. Например, для списков \haskinline|<>| "--- конкатенация:
+          \begin{haskellsmall}
+            ghci> check $ prop_associative $
+                    Gen.list (Range.linear 0 20) $
+                      Gen.int (Range.linearFrom 0 (-100) 100)
+          \end{haskellsmall}
+          \pause
+          \begin{ghcismall}
+            True
+          \end{ghcismall}
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
   \frametitle{Тестирование законов классов}
   \begin{itemize}
-    \item Библиотека \hackage{quickcheck-classes} содержит свойства, проверяющие законы для множества классов.
-    \item Например, законы \haskinline|Eq| определяются функцией \haskinline|eqLaws :: (Eq a, Arbitrary a, Show a) => Proxy a -> Laws| и могут быть проверены для \haskinline|Rational| с помощью \haskinline|lawsCheck (eqLaws (Proxy @Rational))|.
-    \item Для проверки законов \haskinline|Functor/Applicative/Monad/...| вместо \haskinline|Proxy| нужно \haskinline|Proxy1|.
-    \item Для Hedgehog совершенно аналогичная \hackage{hedgehog-classes} (только последняя версия у меня не поставилась).
+    \item Библиотека \hackage{hedgehog-classes} содержит свойства, проверяющие законы для множества классов.
+    \item Например, для \haskinline|Eq|:
+          \begin{haskellsmall}
+            import Hedgehog.Classes
+
+            eqLaws :: (Eq a, Show a) => Gen a -> Laws
+            lawsCheck :: Laws -> IO Bool
+
+            ghci> lawsCheck $ eqLaws $
+                    Gen.int (Range.linearFrom 0 (-100) 100)
+          \end{haskellsmall}
+          \pause
+    \item Для проверки законов \haskinline|Functor/Applicative/Monad/...| передаём генератор структуры, например:
+          \begin{haskellsmall}
+            ghci> lawsCheck (functorLaws Gen.maybe)
+          \end{haskellsmall}
   \end{itemize}
 \end{frame}
 
 \begin{frame}[fragile]
-  \frametitle{Ещё раз: Hedgehog и QuickCheck}
+  \frametitle{Свойства с IO}
   \begin{itemize}
-    \item Главная разница: в Hedgehog уменьшение интегрировано с генерацией значений, а не определяется типом.
-    \item Нет \haskinline|Arbitrary|, генераторы контролируются полностью явно.
-    \item Для улучшения воспроизводимости вместе с контрпримером выдаётся seed.
-    \item Улучшенный показ контрпримеров с помощью пакета \hackage{pretty-show} и функции \href{http://hackage.haskell.org/package/hedgehog-1.0/docs/Hedgehog.html#v:diff}{diff}.
-    \item Проще работа с монадическими свойствами.
-    \item Поддержка тестирования с состоянием.
-    \item Для генерации функций нужна отдельная библиотека \hackage{hedgehog-fn}.
-    \item Параллельная проверка (для ускорения).
+    \item Проверим запись и чтение \haskinline|IORef| из \href{https://hackage.haskell.org/package/base/docs/Data-IORef.html}{\haskinline|Data.IORef|}:
+          \begin{haskellsmall}
+            import Data.IORef (newIORef, writeIORef, readIORef)
+
+            prop_ioRef :: Property
+            prop_ioRef = property $ do
+              x <- forAll $ Gen.int Range.constantBounded
+              y <- evalIO $ do
+                ref <- newIORef 0
+                writeIORef ref x
+                readIORef ref
+              y === x
+            ghci> check prop_ioRef
+          \end{haskellsmall}
+          \pause
+          \begin{ghcismall}
+            True
+          \end{ghcismall}
+    \item \haskinline|evalIO| выполняет действие \haskinline|IO| внутри свойства. Новый \haskinline|IORef| создаётся для каждого примера, в том числе при уменьшении.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Альтернативы: QuickCheck}
+  \begin{itemize}
+    \item \hackage{QuickCheck}: класс \haskinline|Arbitrary| задаёт генератор \haskinline|arbitrary| и отдельную функцию уменьшения \haskinline|shrink|.
+    \item Для стандартных типов генератор уже есть; можно сразу записать свойство как функцию:
+          \begin{haskellsmall}
+            import Test.QuickCheck
+
+            prop_reverse :: [Int] -> Property
+            prop_reverse xs = reverse (reverse xs) === xs
+
+            ghci> quickCheck prop_reverse
+          \end{haskellsmall}
+          \begin{ghcismall}
+            +++ OK, passed 100 tests.
+          \end{ghcismall}
+    \item Генераторы можно передавать и явно, но уменьшение задаётся отдельно.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{QuickCheck: переполнение Int}
+  \begin{itemize}
+    \item Проверим неотрицательность квадрата:
+          \begin{haskellsmall}
+            prop_squareInt :: Int -> Bool
+            prop_squareInt x = x * x >= 0
+            ghci> quickCheck prop_squareInt
+          \end{haskellsmall}
+          \pause
+          \begin{ghcismall}
+            +++ OK, passed 100 tests.
+          \end{ghcismall}
+    \item Стандартный генератор \haskinline|Int| начинает с малых значений. Возьмём весь диапазон и явно зададим уменьшение:
+          \begin{haskellsmall}
+            ghci> quickCheck $
+                    forAllShrink arbitraryBoundedIntegral shrink
+                      prop_squareInt
+          \end{haskellsmall}
+          \pause
+          {\footnotesize Пример вывода (64-битный \haskinline|Int|):}
+          \begin{ghcismall}
+            *** Failed! Falsified (after 1 test and 64 shrinks):
+            3037000500
+          \end{ghcismall}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Альтернативы: Falsify}
+  \begin{itemize}
+    \item \hackage{falsify}: уменьшает внутренние случайные решения; поддерживает уменьшение через зависимые генераторы.
+          \begin{haskellsmall*}{texcomments=false}
+            {-# LANGUAGE OverloadedStrings #-}
+            import Test.Falsify
+            import Test.Falsify.Interactive (falsify)
+            import qualified Test.Falsify.Generator as Gen
+            import qualified Test.Falsify.Predicate as P
+            import qualified Test.Falsify.Range as Range
+          \end{haskellsmall*}
+    \item Свойство имеет тип \haskinline|Property ()|; \haskinline|gen| играет роль \haskinline|forAll| из Hedgehog.
+    \item \haskinline|assert| принимает специальный предикат, например \haskinline|P.eq|. Оператор \haskinline|.$| передаёт ему аргумент вместе с подписью для вывода ошибки.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Falsify: пример}
+  \begin{itemize}
+    \item Та же проверка двойного разворота списка:
+          \begin{haskellsmall}
+            prop_reverse :: Property ()
+            prop_reverse = do
+              xs <- gen $ Gen.list (Range.inclusive (0, 100)) $
+                Gen.int (Range.inclusive (-100, 100))
+              assert $ P.eq .$ ("actual", reverse (reverse xs))
+                            .$ ("expected", xs)
+
+            ghci> falsify prop_reverse
+          \end{haskellsmall}
+          \begin{ghcismall}
+            Nothing
+          \end{ghcismall}
+    \item \haskinline|Nothing| означает, что контрпример не найден; при нарушении свойства получим \haskinline|Just| с описанием ошибки.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Falsify: переполнение Int}
+  \begin{itemize}
+    \item \haskinline|Range.uniform| охватывает весь диапазон типа и задаёт уменьшение к нулю:
+          \begin{haskellsmall}
+            prop_squareInt :: Property ()
+            prop_squareInt = do
+              x <- gen $ Gen.int Range.uniform
+              assert $ P.ge .$ ("x * x", x * x)
+                            .$ ("zero", 0)
+            ghci> falsify prop_squareInt
+          \end{haskellsmall}
+          \pause
+    \item Получим \haskinline|Just| с описанием ошибки. Пример сообщения для 64-битного \haskinline|Int|:
+          \begin{ghcismall}
+            x * x < zero
+            x * x: -9223372036709301616
+            zero : 0
+          \end{ghcismall}
+    \item \haskinline|P.ge| проверяет \haskinline|>=|; подписи помогают понять, что именно оказалось неверным.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{Альтернативы: TinyCheck}
+  \begin{itemize}
+    \item \href{https://github.com/turion/tinycheck}{TinyCheck}: перебирает значения от простых к сложным вместо случайной генерации. Проверки детерминированы; отдельное уменьшение не требуется.
+    \item Пример с библиотекой запуска тестов \hackage{tasty}:
+          \begin{haskellsmall}
+            import Test.Tasty (defaultMain)
+            import Test.Tasty.TinyCheck (testProperty)
+
+            main :: IO ()
+            main = defaultMain $
+              testProperty "reverse . reverse == id" $
+                \(xs :: [Int]) -> reverse (reverse xs) == xs
+          \end{haskellsmall}
+    \item Использует свой класс \haskinline|Arbitrary| для перечисления примеров; экземпляры для стандартных типов уже есть.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{TinyCheck: переполнение Int}
+  \begin{itemize}
+    \item Та же проверка со стандартным перечислением:
+          \begin{haskellsmall}
+            main :: IO ()
+            main = defaultMain $
+              testProperty "square" $
+                \(x :: Int) -> x * x >= 0
+          \end{haskellsmall}
+          \pause
+          \begin{ghcismall}
+            square: OK
+              OK, checked 10000 cases
+          \end{ghcismall}
+    \item Перебираются \haskinline|0, -1, 1, -2, 2, ...|: до значений, вызывающих переполнение, ещё очень далеко.
+    \item Добавим большие значения в перечисление явно.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \frametitle{TinyCheck: добавляем большие значения}
+  \begin{itemize}
+    \item Значения вида $2^k-1$ чередуем со стандартными:
+          \begin{haskellsmall}
+            import Data.Bits (finiteBitSize)
+            import Data.TestCases (TestCases(..), arbitrary)
+            import Test.Tasty.TinyCheck (forAllShow, assert)
+
+            ints :: TestCases Int
+            ints = TestCases [2^k - 1 | k <- [0 .. bits - 1]]
+              <> arbitrary
+              where bits = finiteBitSize (0 :: Int)
+            main = defaultMain $ testProperty "square" $ do
+              x <- forAllShow "x" ints
+              assert (x * x >= 0)
+          \end{haskellsmall}
+          \pause
+          {\footnotesize Сокращённый вывод для 64-битного \haskinline|Int|:}
+          \begin{ghcismall}
+            square: FAIL
+              x: 4294967295
+              falsified
+          \end{ghcismall}
   \end{itemize}
 \end{frame}
 
@@ -284,7 +666,7 @@
   \frametitle{Дополнительное чтение}
   \footnotesize
   \begin{itemize}
-    \item \href{https://hypothesis.works/articles/quickcheck-in-every-language/}{QuickCheck in Every Language} Список библиотек тестирования свойств на разных языках на апрель 2016 (от автора Hypothesis для Python).
+    \item \href{https://hypothesis.works/articles/quickcheck-in-every-language/}{QuickCheck in Every Language} Список библиотек тестирования свойств на разных языках на апрель 2016 (от автора \href{https://hypothesis.works/}{Hypothesis} для Python).
     \item \href{https://begriffs.com/posts/2017-01-14-design-use-quickcheck.html}{The Design and Use of QuickCheck}
     \item \href{https://teh.id.au/posts/2017/04/23/property-testing-with-hedgehog/}{Property testing with Hedgehog}
     \item \href{http://www.well-typed.com/blog/2019/05/integrated-shrinking/}{Integrated versus Manual Shrinking} Реализация и сравнение мини-версий QuickCheck и Hedgehog.
