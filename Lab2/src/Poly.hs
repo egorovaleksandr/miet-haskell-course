@@ -4,62 +4,58 @@ module Poly where
 
 -- Многочлены
 -- a -- тип коэффициентов, список начинается со свободного члена.
--- Бонус: при решении следующих заданий подумайте, какие стали бы проще или
--- сложнее при обратном порядке коэффициентов (и добавьте комментарий).
 newtype Poly a = P [a]
 
 -- Задание 1 -----------------------------------------
 
--- Определите многочлен $x$.
 x :: Num a => Poly a
-x = undefined
+x = P [0, 1]
 
 -- Задание 2 -----------------------------------------
 
--- Функция, считающая значение многочлена в точке
 applyPoly :: Num a => Poly a -> a -> a
-applyPoly = undefined
+applyPoly (P cs) t = foldr (\c acc -> c + t * acc) 0 cs
 
--- Задание 3 ----------------------------------------
+-- Задание 3 -----------------------------------------
 
--- Определите равенство многочленов
--- Заметьте, что многочлены с разными списками коэффициентов
--- могут быть равны! Подумайте, почему.
 instance (Num a, Eq a) => Eq (Poly a) where
-    (==) = undefined
- 
+    (P xs) == (P ys) =
+        reverse (dropWhile (== 0) (reverse xs)) == reverse (dropWhile (== 0) (reverse ys))
+
 -- Задание 4 -----------------------------------------
 
--- Найдите степень многочлена: наибольшую степень x с ненулевым коэффициентом.
--- Для нулевого многочлена верните Nothing.
--- Например:
--- degree (P [])              == Nothing
--- degree (P [0, 0])          == Nothing
--- degree (P [5])             == Just 0
--- degree (P [1, 0, 3, 0, 0]) == Just 2
 degree :: (Num a, Eq a) => Poly a -> Maybe Int
-degree = undefined
+degree (P cs) = case dropWhile (== 0) (reverse cs) of
+    []      -> Nothing
+    trimmed -> Just (length trimmed - 1)
 
 -- Задание 5 -----------------------------------------
 
--- Определите сложение многочленов
 plus :: Num a => Poly a -> Poly a -> Poly a
-plus = undefined
+plus (P xs) (P ys) = P (zipWithPad (+) xs ys)
+  where
+    zipWithPad f as bs =
+        let n = max (length as) (length bs)
+        in zipWith f (as ++ replicate (n - length as) 0)
+                     (bs ++ replicate (n - length bs) 0)
 
 -- Задание 6 -----------------------------------------
 
--- Определите умножение многочленов
 times :: Num a => Poly a -> Poly a -> Poly a
-times = undefined
+times (P []) _ = P []
+times _ (P []) = P []
+times (P xs) (P ys) = P (take (length xs + length ys - 1) (go xs))
+  where
+    go []     = []
+    go (a:as) = zipWith (+) (map (a*) ys ++ repeat 0) (0 : go as ++ repeat 0)
 
 -- Задание 7 -----------------------------------------
 
--- Сделайте многочлены числовым типом
 instance Num a => Num (Poly a) where
     (+) = plus
     (*) = times
-    negate      = undefined
-    fromInteger = undefined
+    negate (P cs) = P (map negate cs)
+    fromInteger n = P [fromInteger n]
     -- Эти функции оставить как undefined, поскольку для 
     -- многочленов они не имеют математического смысла
     abs    = undefined
@@ -67,38 +63,26 @@ instance Num a => Num (Poly a) where
 
 -- Задание 8 -----------------------------------------
 
--- Определите композицию многочленов: composePoly p q представляет p(q(x)).
--- Можно использовать уже реализованные арифметические операции.
--- Например:
--- composePoly (P [1, 0, 1]) (P [1, 1]) == P [2, 2, 1]
--- Порядок аргументов важен:
--- applyPoly (composePoly p q) t == applyPoly p (applyPoly q t)
 composePoly :: Num a => Poly a -> Poly a -> Poly a
-composePoly = undefined
+composePoly (P ps) q = foldr (\c acc -> P [c] + q * acc) (P []) ps
 
 -- Задание 9 -----------------------------------------
 
--- Реализуйте nderiv через deriv
 class Differentiable f where
-    -- значение представленной функции в точке: apply p t = p(t)
     apply  :: Num a => f a -> a -> a
-    -- взятие производной
     deriv  :: Num a => f a -> f a
-    -- взятие n-ной производной; предполагается n >= 0.
     nderiv :: Num a => Int -> f a -> f a
-    nderiv = undefined
+    nderiv 0 p = p
+    nderiv n p = nderiv (n - 1) (deriv p)
 
 -- Задание 10 ----------------------------------------
 
--- Определите экземпляр класса типов
 instance Differentiable Poly where
     apply = applyPoly
-    deriv = undefined
+    deriv (P cs) = P (zipWith (\i c -> fromIntegral (i :: Int) * c) [1..] (drop 1 cs))
 
 -- Готовый вывод многочленов --------------------------------------------
--- Для записи со знаками + и - используем упорядоченные коэффициенты.
--- Реализация не зависит от функций, которые нужно написать в заданиях.
--- Например: show (P [1, -1, 3] :: Poly Integer) == "3 * x^2 - x + 1".
+
 instance (Num a, Ord a, Show a) => Show (Poly a) where
     showsPrec precedence (P coefficients) =
         case terms of
@@ -127,8 +111,6 @@ instance (Num a, Ord a, Show a) => Show (Poly a) where
         powerText power = "x^" ++ show power
 
         magnitudeText context coefficient
-            -- Отрицание minBound :: Int тоже переполняется.
-            -- В этом случае убираем минус из записи, не вычисляя модуль.
             | magnitude < 0 = case show magnitude of
                 '-' : digits -> digits
                 text -> text
